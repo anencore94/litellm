@@ -1059,11 +1059,21 @@ class UserAPIKeyCacheTTLEnum(enum.Enum):
 async def openai_exception_handler(request: Request, exc: ProxyException):
     # NOTE: DO NOT MODIFY THIS, its crucial to map to Openai exceptions
     headers = exc.headers
+    status_code = (
+        int(exc.code) if exc.code else status.HTTP_500_INTERNAL_SERVER_ERROR
+    )
+
+    error_format = general_settings.get("error_response_format", "openai")
+    if error_format == "fastapi":
+        return JSONResponse(
+            status_code=status_code,
+            content={"detail": exc.message},
+            headers=headers,
+        )
+
     error_dict = exc.to_dict()
     return JSONResponse(
-        status_code=(
-            int(exc.code) if exc.code else status.HTTP_500_INTERNAL_SERVER_ERROR
-        ),
+        status_code=status_code,
         content={"error": error_dict},
         headers=headers,
     )

@@ -2154,6 +2154,10 @@ class ConfigGeneralSettings(LiteLLMPydanticObjectBase):
         None,
         description="If True, forwards client headers (e.g. Authorization) to the LLM API. Required for Claude Code with Max subscription.",
     )
+    error_response_format: Optional[Literal["openai", "fastapi"]] = Field(
+        None,
+        description="Format for error responses from the proxy. 'openai' (default) returns {'error': {'message': ..., 'type': ..., 'code': ...}}. 'fastapi' returns {'detail': '...'}.",
+    )
 
 
 class ConfigYAML(LiteLLMPydanticObjectBase):
