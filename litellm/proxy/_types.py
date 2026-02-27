@@ -2048,6 +2048,10 @@ class ConfigGeneralSettings(LiteLLMPydanticObjectBase):
         None,
         description="override user_api_key_auth with your own auth script - https://docs.litellm.ai/docs/proxy/virtual_keys#custom-auth",
     )
+    auth_excluded_paths: Optional[List[str]] = Field(
+        None,
+        description="List of request paths that bypass authentication entirely (including custom_auth). Example: ['/health', '/custom-endpoint']",
+    )
     max_parallel_requests: Optional[int] = Field(
         None,
         description="maximum parallel requests for each api key",

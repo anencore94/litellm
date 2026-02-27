@@ -477,6 +477,16 @@ async def _user_api_key_auth_builder(  # noqa: PLR0915
             request=request,
             route=route,
         )
+
+        ### CHECK AUTH EXCLUDED PATHS ###
+        auth_excluded_paths: Optional[List[str]] = general_settings.get(
+            "auth_excluded_paths", None
+        )
+        if auth_excluded_paths is not None and route in auth_excluded_paths:
+            return UserAPIKeyAuth(
+                user_role=LitellmUserRoles.INTERNAL_USER_VIEW_ONLY
+            )
+
         pass_through_endpoints: Optional[List[dict]] = general_settings.get(
             "pass_through_endpoints", None
         )
