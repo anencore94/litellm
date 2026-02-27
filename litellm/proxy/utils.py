@@ -5375,4 +5375,43 @@ def model_dump_with_preserved_fields(
                 if sub_obj is not None and hasattr(sub_obj, field_name):
                     sub_dict[field_name] = getattr(sub_obj, field_name)
 
+    if litellm.flatten_provider_specific_fields:
+        _flatten_provider_specific_fields_in_choices(result)
+
     return result
+
+
+def _flatten_provider_specific_fields_in_choices(result: Dict[str, Any]) -> None:
+    """
+    Flatten provider_specific_fields from nested dict into parent objects.
+
+    Transforms:
+        {"choices": [{"message": {"content": "hi", "provider_specific_fields": {"refusal": null, ...}}}]}
+    Into:
+        {"choices": [{"message": {"content": "hi", "refusal": null, ...}}]}
+
+    Also handles top-level provider_specific_fields on choices and the response itself.
+    """
+    # Flatten top-level provider_specific_fields (on ModelResponse)
+    psf = result.pop("provider_specific_fields", None)
+    if psf and isinstance(psf, dict):
+        result.update(psf)
+
+    choices = result.get("choices")
+    if not choices:
+        return
+
+    for choice_dict in choices:
+        # Flatten on choice level
+        psf = choice_dict.pop("provider_specific_fields", None)
+        if psf and isinstance(psf, dict):
+            choice_dict.update(psf)
+
+        # Flatten on message/delta level
+        for sub_key in ("message", "delta"):
+            sub_dict = choice_dict.get(sub_key)
+            if sub_dict is None or not isinstance(sub_dict, dict):
+                continue
+            psf = sub_dict.pop("provider_specific_fields", None)
+            if psf and isinstance(psf, dict):
+                sub_dict.update(psf)
