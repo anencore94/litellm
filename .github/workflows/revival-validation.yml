@@ -17,7 +17,7 @@ jobs:
             ref: eacacd4446bcd3b5886e2b683d80c68f71270fff
             tests: tests/unit/proxy/middleware/test_litellm_response_headers_middleware.py
           - pr: 49599
-            ref: 0530ebee46ba673d7da869bd1a541f5c994d85f1
+            ref: 8c59d24d78f56311d7ad67249c2c0ee134e6aacc
             tests: tests/unit/llms/custom_httpx/test_raw_body_surrogates.py
           - pr: 49601
             ref: 3687b4aff1243b965568f345b6dbc282b7a56a44
