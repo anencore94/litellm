@@ -540,10 +540,10 @@ def _rule_drop(site: _Site) -> Finding | None:
                 BREAKING, "Drops a table the previous version still queries. Old pods keep failing until they are gone."
             )
         return site.rate(INFO, "Drops a table the previous version does not know.")
-    dropped: Final = _DROP_COLUMN_NAME.search(site.statement)
-    if dropped is None:
+    dropped: Final = tuple(match.group("column") for match in _DROP_COLUMN_NAME.finditer(site.statement))
+    if not dropped:
         return None
-    column: Final = dropped.group("column")
+    column: Final = next((column for column in dropped if site.knows(column)), dropped[0])
     if site.knows(column):
         return site.rate(
             BREAKING,
@@ -554,9 +554,9 @@ def _rule_drop(site: _Site) -> Finding | None:
 
 
 def _rule_rename(site: _Site) -> Finding | None:
-    renamed: Final = _RENAME_COLUMN.search(site.statement)
-    if renamed is not None:
-        old_name: Final = renamed.group("column")
+    renamed: Final = tuple(match.group("column") for match in _RENAME_COLUMN.finditer(site.statement))
+    if renamed:
+        old_name: Final = next((column for column in renamed if site.knows(column)), renamed[0])
         if site.knows(old_name):
             return site.rate(
                 BREAKING,

@@ -553,6 +553,47 @@ def test_renaming_a_column_is_rated_by_whether_the_old_client_uses_it() -> None:
     assert unknown.severity == impact.INFO
 
 
+@pytest.mark.parametrize(
+    "clause",
+    ['DROP COLUMN IF EXISTS "{column}"', 'RENAME COLUMN "{column}" TO "{column}_new"'],
+)
+@pytest.mark.parametrize(
+    "columns,severity,reported",
+    [
+        (("unknown", "key_name"), impact.BREAKING, "key_name"),
+        (("unknown", "other", "team_id"), impact.BREAKING, "team_id"),
+        (("key_name", "unknown"), impact.BREAKING, "key_name"),
+        (("unknown", "other"), impact.INFO, "unknown"),
+    ],
+)
+def test_repeated_column_changes_keep_the_worst_effect(
+    clause: str, columns: tuple[str, ...], severity: str, reported: str
+) -> None:
+    changes: Final = ", ".join(clause.format(column=column) for column in columns)
+    statement: Final = f'ALTER TABLE "LiteLLM_VerificationToken" {changes}'
+    finding: Final = impact.classify(
+        "compound_changes", statement, _context(schema=_base_schema(), reads=(_auth_read(),))
+    )
+    assert finding.severity == severity
+    assert f"`{reported}`" in finding.effect
+    assert finding.statement == statement
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        'DROP COLUMN "unknown", DROP COLUMN "key_name"',
+        'RENAME COLUMN "unknown" TO "other", RENAME COLUMN "key_name" TO "display_name"',
+    ],
+)
+def test_repeated_column_changes_on_a_fresh_table_remain_informational(changes: str) -> None:
+    statement: Final = f'ALTER TABLE "LiteLLM_VerificationToken" {changes}'
+    context: Final = _context(fresh=frozenset({"LiteLLM_VerificationToken"}), schema=_base_schema())
+    finding: Final = impact.classify("compound_changes", statement, context)
+    assert finding.severity == impact.INFO
+    assert "created by this same upgrade" in finding.effect
+
+
 def test_set_not_null_is_breaking_only_where_the_old_client_may_write_null() -> None:
     schema = _base_schema()
     optional_at_base = _classify(
