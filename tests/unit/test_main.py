@@ -40,6 +40,7 @@ from litellm.caching.caching import Cache
 from litellm.constants import CONTROL_OPTIONS_KEY
 from litellm.integrations.custom_logger import CustomLogger
 from litellm.integrations.custom_prompt_management import CustomPromptManagement
+from litellm.integrations.dotprompt.dotprompt_manager import DotpromptManager
 from litellm.litellm_core_utils.core_helpers import get_litellm_metadata_from_kwargs
 from litellm.litellm_core_utils.get_litellm_params import stored_control_options
 from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLogging
@@ -6867,6 +6868,93 @@ def test_completion_rejects_an_invalid_stream_chunk_size_with_a_400_naming_the_p
     assert exc_info.value.status_code == 400
     assert exc_info.value.param == "stream_chunk_size"
     assert f"Invalid stream_chunk_size={raw!r}: expected a positive integer of at most 18 digits" in str(exc_info.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "tier,model,temperature,limit", [("quick", "gpt-4o-mini", 0.42, 31), ("deep", "gpt-4o", 0.82, 63)]
+)
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {},
+        {"temperature": 0.0, "max_tokens": 17},
+        {"temperature": None, "max_tokens": None},
+        {"seed": 0, "logprobs": False},
+    ],
+)
+@pytest.mark.parametrize("routed", [False, True], ids=["sdk", "complexity-router"])
+async def test_async_completion_preserves_selected_prompt_generation_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    tier: str,
+    model: str,
+    temperature: float,
+    limit: int,
+    overrides: dict[str, float | int | bool | None],
+    routed: bool,
+) -> None:
+    prompt_id: Final = f"generation-{tier}"
+    complexity: Final = "SIMPLE" if tier == "quick" else "REASONING"
+    monkeypatch.setattr(litellm, "disable_aiohttp_transport", True)
+    manager: Final = DotpromptManager(
+        prompt_data={
+            prompt_id: {
+                "content": f"System: Selected {tier}.",
+                "metadata": {"temperature": temperature, "max_tokens": limit, "top_p": 0.7},
+            }
+        }
+    )
+    monkeypatch.setattr(litellm, "callbacks", [manager])
+    provider_params: Final = {
+        "model": f"openai/{model}",
+        "api_base": "https://prompt-provider.test/v1",
+        "api_key": "synthetic",
+    }
+    messages: Final = [{"role": "user", "content": f"marker{tier}"}]
+    with respx.mock(assert_all_called=True) as upstream:
+        provider: Final = upstream.post("https://prompt-provider.test/v1/chat/completions").respond(
+            200,
+            json={
+                "id": "chatcmpl-prompt-settings",
+                "object": "chat.completion",
+                "created": 1,
+                "model": model,
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"}, "finish_reason": "stop"}],
+            },
+        )
+        if routed:
+            router: Final = litellm.Router(
+                model_list=[
+                    {"model_name": tier, "litellm_params": provider_params},
+                    {
+                        "model_name": "smart",
+                        "litellm_params": {
+                            "model": "auto_router/complexity_router",
+                            "complexity_router_default_model": tier,
+                            "complexity_router_config": {
+                                "classifier_type": "heuristic",
+                                "context_compaction": False,
+                                "keyword_tier_rules": [{"keywords": [f"marker{tier}"], "tier": complexity}],
+                                "tiers": {complexity: {"model_name": tier, "litellm_params": {"prompt_id": prompt_id}}},
+                            },
+                        },
+                    },
+                ],
+                num_retries=0,
+            )
+            await router.acompletion(model="smart", messages=messages, **overrides)
+        else:
+            await litellm.acompletion(**provider_params, messages=messages, prompt_id=prompt_id, **overrides)
+
+    body: Final = json.loads(provider.calls.last.request.content)
+    assert body["model"] == model
+    assert body["messages"][-1] == messages[0]
+    assert {message["content"] for message in body["messages"] if message["role"] == "system"} == {f"Selected {tier}."}
+    assert body.get("temperature") == temperature
+    assert body.get("max_tokens") == limit
+    assert body.get("top_p") == 0.7
+    assert body.get("seed") == overrides.get("seed")
+    assert body.get("logprobs") == overrides.get("logprobs")
 
 
 class _PromptHookRecorder(CustomPromptManagement):

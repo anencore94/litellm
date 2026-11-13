@@ -807,16 +807,8 @@ async def acompletion(
         prompt_management_logger, AnthropicCacheControlHook
     )
 
-    if (
-        isinstance(litellm_logging_obj, LiteLLMLoggingObj)
-        and prompt_management_logger is not None
-        and not each_fallback_writes_its_own_cache_dialect
-    ):
-        (
-            model,
-            messages,
-            _,
-        ) = await litellm_logging_obj.async_get_chat_completion_prompt(
+    prompt_result: Final = (
+        await litellm_logging_obj.async_get_chat_completion_prompt(
             model=model,
             messages=messages,
             non_default_params=kwargs,
@@ -828,6 +820,15 @@ async def acompletion(
             prompt_version=kwargs.get("prompt_version", None),
             request_kwargs=kwargs,
         )
+        if (
+            isinstance(litellm_logging_obj, LiteLLMLoggingObj)
+            and prompt_management_logger is not None
+            and not each_fallback_writes_its_own_cache_dialect
+        )
+        else None
+    )
+    if prompt_result is not None:
+        model, messages = prompt_result[:2]
         #########################################################
         # if the chat completion logging hook removed all tools,
         # set tools to None
@@ -935,8 +936,15 @@ async def acompletion(
 
     try:
         # Use a partial function to pass your keyword arguments
-        kwargs.pop("acompletion", None)
-        func: Final = partial(completion, **completion_kwargs, **kwargs)
+        func: Final = partial(
+            completion,
+            **{
+                **completion_kwargs,
+                **kwargs,
+                **(prompt_result[2] if prompt_result is not None else {}),
+                "acompletion": True,
+            },
+        )
 
         # Add the context to the function
         ctx: Final = contextvars.copy_context()
